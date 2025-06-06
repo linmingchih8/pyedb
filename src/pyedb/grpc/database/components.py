@@ -1778,39 +1778,48 @@ class Components(object):
         -------
         bool
         """
-        with open(bom_file, "r") as f:
-            lines = f.readlines()
-            unmount_comp_list = list(self.instances.keys())
-            for l in lines[1:]:
-                l = l.replace(" ", "").replace("\n", "")
-                if not l:
-                    continue
-                l = l.split(delimiter)
+        import csv
 
-                refdes = l[refdes_col]
+        with open(bom_file, "r", newline="") as f:
+            reader = csv.reader(f, delimiter=delimiter)
+            next(reader, None)
+            unmount_comp_list = list(self.instances.keys())
+            for row in reader:
+                if not row:
+                    continue
+                row = [c.strip() for c in row]
+
+                if refdes_col >= len(row):
+                    continue
+                refdes = row[refdes_col]
+                if refdes not in self.instances:
+                    continue
+
                 comp = self.instances[refdes]
-                if not part_name_col == None:
-                    part_name = l[part_name_col]
-                    if comp.partname == part_name:
-                        pass
-                    else:
+
+                if part_name_col is not None and part_name_col < len(row):
+                    part_name = row[part_name_col]
+                    if comp.partname != part_name:
                         pinlist = self._pedb.padstacks.get_instances(refdes)
-                        if not part_name in self.definitions:
-                            comp_def = ComponentDef.create(self._db, part_name, None)
-                            # for pin in range(len(pinlist)):
-                            #     ComponentPin.create(comp_def, str(pin))
+                        if part_name not in self.definitions:
+                            ComponentDef.create(self._db, part_name, None)
 
                         p_layer = comp.placement_layer
                         refdes_temp = comp.refdes + "_temp"
                         comp.refdes = refdes_temp
 
-                        unmount_comp_list.remove(refdes)
+                        if refdes in unmount_comp_list:
+                            unmount_comp_list.remove(refdes)
                         comp.ungroup(True)
                         self.create(pinlist, refdes, p_layer, part_name)
                         self.refresh_components()
                         comp = self.instances[refdes]
 
-                comp_type = l[comp_type_col]
+                if comp_type_col is not None and comp_type_col < len(row):
+                    comp_type = row[comp_type_col]
+                else:
+                    comp_type = ""
+
                 if comp_type.capitalize() in ["Resistor", "Capacitor", "Inductor", "Other"]:
                     comp.type = comp_type.capitalize()
                 else:
@@ -1818,11 +1827,9 @@ class Components(object):
 
                 if comp_type.capitalize() in ["Resistor", "Capacitor", "Inductor"] and refdes in unmount_comp_list:
                     unmount_comp_list.remove(refdes)
-                if not value_col == None:
-                    try:
-                        value = l[value_col]
-                    except:
-                        value = None
+
+                if value_col is not None and value_col < len(row):
+                    value = row[value_col]
                     if value:
                         if comp_type == "Resistor":
                             self.set_component_rlc(refdes, res_value=value)
@@ -1830,8 +1837,10 @@ class Components(object):
                             self.set_component_rlc(refdes, cap_value=value)
                         elif comp_type == "Inductor":
                             self.set_component_rlc(refdes, ind_value=value)
+
             for comp in unmount_comp_list:
                 self.instances[comp].enabled = False
+
         return True
 
     def export_bom(self, bom_file, delimiter=","):
